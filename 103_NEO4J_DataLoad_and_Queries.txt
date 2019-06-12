@@ -1,0 +1,96 @@
+
+###
+### Data LOAD
+###
+
+# Indicare qui la folder contenente il grafo
+SET DB_HOME=[INSERT YOUR DB PATH HERE]
+SET NEO4J_USERNAME=neo4j
+SET NEO4J_PASSWORD=MammaChePassw0rdCheHo!
+
+cat northwind\import_csv_win.cypher | %DB_HOME%\bin\cypher-shell.bat --format plain
+
+###
+### Data LOAD
+###
+
+
+# Pulizia Iniziale
+MATCH (n) OPTIONAL MATCH (n)-[r]-() DELETE n,r
+
+# Esplorazione dei 10 prodotti:
+MATCH 
+	(p:Product{productID: "6" } )<-[:PRODUCT]-(o:Order)
+	, (s:Supplier)-[:SUPPLIES]->(p)
+	, (p)-[:PART_OF]->(c:Category)
+RETURN p, o, s, c
+
+# Prodotti più comprati (opzionale)
+
+MATCH (p:Product)<-[purchased:PRODUCT]-(o:Order)
+WITH p, COUNT(purchased) as Rels, collect(o.orderID) as orders
+RETURN p.productID, Rels, orders
+ORDER BY Rels DESC
+
+# Iniziamo dal prodotto 60
+
+MATCH (p:Product)  WHERE p.productID = "60" RETURN (p)
+
+# Quante volte è stato comprato il prodotto 60
+
+MATCH (p:Product)<-[pu:PRODUCT]-(o:Order)
+WHERE p.productID = "60"
+WITH p, collect(o.orderID) as OrderIds, count(pu) as Purchases
+RETURN p, Purchases, OrderIds
+
+# Gli ordini con cui è stato preso
+
+MATCH (p:Product)<-[pu:PRODUCT]-(o:Order)
+WHERE p.productID = "60"
+RETURN o.orderID, p.productID, p.productName
+
+# Chi sono gli utenti che hanno comprato il prodotto 60
+
+MATCH (p:Product)<-[pu:PRODUCT]-(o:Order)<-[purch:PURCHASED]-(c:Customer)
+WHERE p.productID = "60"
+RETURN distinct c.customerID, c.companyName
+
+# Magia: cosa hanno comprato gli altri compratori del prodotto 60
+# QUESTA è User based recommendation
+
+MATCH (p:Product)<-[pu:PRODUCT]-(o:Order)<-[purch:PURCHASED]-(c:Customer)
+, (p2:Product)<-[pu2:PRODUCT]-(o2:Order)<-[purch2:PURCHASED]-(c)
+WHERE p.productID = "60" AND p.productID <> p2.productID
+RETURN p2.productID, p2.productName, COUNT(*) as times
+ORDER BY times DESC
+
+# Possiamo anche fare di più
+# QUESTA è Content based recommendation
+
+MATCH (choc:Product {productName:'Chocolade'})<-[:PRODUCT]-(:Order)<-[:SOLD]-(employee),
+      (employee)-[:SOLD]->(o2)-[:PRODUCT]->(other:Product)
+RETURN employee.employeeID, other.productName, count(distinct o2) as count
+ORDER BY count DESC
+LIMIT 5;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
