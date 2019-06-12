@@ -1,0 +1,36 @@
+#
+# Setup SQL Server RDMBS Container
+#
+
+## SQL Server Container
+Costruiamo un container SQL Server su cui effettueremo il restore di un database relazionale.
+
+```
+docker pull mcr.microsoft.com/mssql/server:2017-latest
+
+docker run --name "sqlserverdemo1" -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=Mamma@ChePassword!" -p 1433:1433 -v data_sqlserverdemo1:/var/opt/mssql -d mcr.microsoft.com/mssql/server:2017-latest
+
+docker exec -it sql1 /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P "<YourStrong!Passw0rd>" -Q "ALTER LOGIN SA WITH PASSWORD='<YourNewStrong!Passw0rd>'"
+```
+
+## Restore Backup
+```
+docker exec -it sqlserverdemo1 mkdir /var/opt/mssql/backup
+
+docker cp northwind/Northwind.bak sqlserverdemo1:/var/opt/mssql/backup
+
+docker exec -it sqlserverdemo1 ls /var/opt/mssql/backup
+```
+
+### Restore file list only
+```
+docker exec -it sqlserverdemo1 /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P "Mamma@ChePassword!" -Q "RESTORE FILELISTONLY FROM DISK = '/var/opt/mssql/backup/Northwind.bak'" 
+```
+### Restore full
+```
+docker exec -it sqlserverdemo1 /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P "Mamma@ChePassword!" -Q "RESTORE DATABASE Northwind FROM DISK = '/var/opt/mssql/backup/Northwind.bak' WITH MOVE 'Northwind' TO '/var/opt/mssql/data/NORTHWND_.mdf', MOVE 'Northwind_log' TO '/var/opt/mssql/data/Northwind_log.ldf'"
+```
+### Check Finale
+```
+docker exec -it sqlserverdemo1 /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P "Mamma@ChePassword!" -Q "SELECT Name FROM sys.Databases"
+```

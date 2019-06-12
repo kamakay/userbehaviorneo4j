@@ -1,0 +1,46 @@
+#
+# Vediamo chi ha fatto più ordini
+#
+
+SELECT "CustomerID", COUNT(*) AS N
+FROM public.orders
+GROUP BY "CustomerID"
+ORDER BY N desc
+
+#
+# Voglio analizzare un utente, "ERNSH"
+#
+SELECT OD."OrderID", O."CustomerID", "ProductID", "UnitPrice", "Quantity", "Discount" 
+FROM public.order_details as OD INNER JOIN  public.orders as O ON OD."OrderID" = O."OrderID"
+
+##
+## Voglio analizzare un prodotto (59, 60)
+##
+SELECT "ProductID", COUNT(*) as N 
+FROM public.order_details
+GROUP BY "ProductID" ORDER BY N desc
+
+##
+## E ora voglio vedere cosa hanno comprato gli utenti che hanno comprato il prodotto X
+##
+
+WITH 
+-- tutti gli ordini in cui ho comprato il prodotto X
+qry1 AS (
+SELECT OD."OrderID", O."CustomerID", "ProductID", "UnitPrice", "Quantity", "Discount" 
+FROM public.order_details as OD INNER JOIN  public.orders as O ON OD."OrderID" = O."OrderID"
+WHERE OD."ProductID" = 60
+)
+-- tutti i prodotti diveris da X venduti assieme ad X
+, qry2 AS (
+SELECT
+OD."ProductID", COUNT(*) AS N
+FROM qry1 
+INNER JOIN public.orders as O ON O."OrderID" = qry1."OrderID"
+INNER JOIN public.order_details as OD ON OD."OrderID" = O."OrderID"
+WHERE OD."ProductID" <> 60
+GROUP BY OD."ProductID"
+)
+
+SELECT * FROM qry2 ORDER BY N desc
+
