@@ -1,0 +1,74 @@
+
+###
+###
+### Neo4J Similarity Algorythms
+###
+###
+
+MATCH (u1:USER{ userId:1 })-[r1:RATED]->(m:MOVIE)<-[r2:RATED]-(u2:USER)
+WITH
+count(m) AS CommonMovies , u1.userId AS user1, u2.userId AS user2
+, u1, u2
+, collect((toFloat(r1.rating)-toFloat(r2.rating))^2) AS ratings
+, collect(m.title) AS movies
+WITH u1, u2, CommonMovies, movies, ratings
+WHERE CommonMovies > 2
+RETURN u1.userId, u2.userId, CommonMovies, 1-(SQRT(reduce(total=0.0, k in extract(i in ratings | i/ CommonMovies) | total + k ))/4) as EUC_SIM
+ORDER BY EUC_SIM DESC
+
+
+// Computing Euclidean similarity between ONE and OTHER users
+// MATCH (u1:USER{ userId:1 })-[r1:RATED]->(m:MOVIE)<-[r2:RATED]-(u2:USER{ userId:353})
+MATCH (u1:USER{ userId:1 })-[r1:RATED]->(m:MOVIE)<-[r2:RATED]-(u2:USER)
+WHERE u1 <> u2
+WITH 
+u1.userId AS user1
+, u2.userId AS user2
+, algo.similarity.euclideanDistance(collect(toFloat(r1.rating)), collect(toFloat(r2.rating))) AS distance
+RETURN user1, user2, distance, 1/(1+distance) as similarity
+ORDER BY similarity DESC
+LIMIT 50
+
+// Computing Euclidean similarity between ONE and OTHER users - Alternatives
+MATCH (u)-[r:RATED]->(m:MOVIE)<-[or:RATED]-(ou:USER{userId:1})
+WITH {item:id(u), weights: collect(coalesce(toFloar(r.rating), 0.0))} as userData
+WITH collect(userData) as data
+CALL algo.similarity.euclidean.stream(data)
+YIELD item1, item2, count1, count2, similarity
+RETURN algo.getNodeById(item1).userId AS from, algo.getNodeById(item2).userID AS to, similarity
+ORDER BY similarity
+
+
+
+// Computing Euclidean similarity between ALL users using euclidean distance procedure
+MATCH (u1:USER)-[r1:RATED]->(m:MOVIE)
+WITH {item:id(u1), weights: collect(coalesce(toFloat(r1.rating), algo.NaN()))} as userData
+WITH collect(userData) as data
+CALL algo.similarity.euclidean.stream(data, {similarityCutoff: 4.0, topK: 2})
+YIELD item1, item2, count1, count2, similarity
+RETURN algo.asNode(item1).userId AS from, algo.asNode(item2).userId AS to, similarity
+ORDER BY similarity
+LIMIT 20
+
+
+//
+// Pearson Similarity Using Algorythms
+//
+MATCH (u1:USER {userId:1})-[r:RATED]->(m:MOVIE)
+WITH u1, algo.similarity.asVector(m, r.rating) AS u1s
+MATCH (m)<-[y:RATED]-(u2:USER)
+WHERE u1 <> u2
+WITH u1, u2, u1s, algo.similarity.asVector(m, y.rating) AS u2s
+RETURN u1.userId,
+       u2.userId, 
+       algo.similarity.pearson(u1s, u2s, {vectorType: "maps"}) AS sim
+ORDER BY sim DESC
+
+
+
+
+
+
+
+
+       

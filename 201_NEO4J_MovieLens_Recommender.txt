@@ -1,0 +1,257 @@
+
+
+###
+### Data LOAD
+###
+
+
+# Indicare qui la folder contenente il grafo, username e password (da cambiare!!!)
+SET DB_HOME=C:\Tools\Neo4JDesktopData\neo4jDatabases\database-b582221f-6271-4e8f-8527-d48e473d57b3\installation-3.5.5
+SET NEO4J_USERNAME=neo4j
+SET NEO4J_PASSWORD=MySuperStrongPassword1!
+
+cat movielens_small\load_movielens.cypher | %DB_HOME%\bin\cypher-shell.bat --format plain
+
+# Checks
+:schema
+
+# Number of ratings
+MATCH (m:MOVIE)<-[r:RATED]-(u) RETURN count(r), count(m)
+
+
+
+#####
+#####
+##### Queries
+#####
+
+
+# Calcoliamo i generi con più relazioni a movies
+
+MATCH (m:MOVIE)-[:HAS_GENRE]->(g:GENRE)
+WITH g, count(m) as rels WHERE rels > 1
+RETURN g, rels
+ORDER BY rels DESC LIMIT 10
+
+# Analizziamo Matrix
+MATCH (m:MOVIE)-[:HAS_GENRE]->(g:GENRE) WHERE m.title contains 'Matrix' return g, m
+
+# Quanti ratings ha il film Matrix (entità e grafo)
+MATCH (m:MOVIE)<-[:RATED]-(u:USER)
+WHERE m.title contains 'Matrix' // 2571
+RETURN m, u LIMIT 10
+
+# Quanti ratings ha il film Matrix (in forma tabellare)
+MATCH (m:MOVIE)<-[:RATED]-(u:USER)
+WHERE m.title CONTAINS 'Matrix'
+WITH m.title AS movie, COUNT(*) AS reviews
+RETURN movie, reviews
+ORDER BY reviews DESC
+LIMIT 5;
+
+# Analizziamo alcuni utenti
+MATCH(u1:USER)-[:RATED]->(m1:MOVIE) RETURN u1, m1 LIMIT 20
+
+
+
+#####
+#####
+##### Content based Recommendation
+#####
+#####
+
+#
+# Similarity Based on Common Genres: Prendiamo tutti i film che hanno lo stesso genere di "Inception"
+# (Item based content based recommendation)
+#
+MATCH (m:MOVIE)-[:HAS_GENRE]->(g:GENRE)<-[:HAS_GENRE]-(rec:MOVIE)
+WHERE m.title = "Inception (2010)"
+WITH rec, COLLECT(g.name) AS genres, COUNT(*) AS commonGenres
+RETURN rec.title, genres, commonGenres
+ORDER BY commonGenres DESC LIMIT 10;
+
+#
+# Personalized Recommendations Based on Genres: Per l'utente 6 forniamo suggerimenti 
+# (User based content based recommendation)
+#
+MATCH
+	(u:USER {userId: 6 })-[r:RATED]->(m:MOVIE)
+	, (m)-[:HAS_GENRE]->(g:GENRE)<-[:HAS_GENRE]-(rec:MOVIE)
+WHERE NOT EXISTS( (u)-[:RATED]->(rec) )
+WITH rec, [g.name, COUNT(*)] AS scores
+
+RETURN 
+	rec.title AS recommendation
+	, COLLECT(scores) AS scoreComponents
+	, REDUCE (s=0, x in COLLECT(scores) | s+x[1] ) AS score
+ORDER BY score DESC
+LIMIT 10
+
+
+#
+# Using Jaccard Similarity
+# What movies are most similar to The Matrix based on Jaccard similarity of genres?
+
+
+MATCH (m:MOVIE {title: "Matrix Revolutions, The (2003)"})-[:HAS_GENRE]->(g:GENRE)<-[:HAS_GENRE]-(other:MOVIE)
+WITH m, other, COUNT(g) AS intersection, COLLECT(g.name) AS i // RETURN m, other, intersection, i
+MATCH (m)-[:HAS_GENRE]->(mg:GENRE)
+WITH m, other, intersection, i , COLLECT(mg.name) AS s1 // s1 genres in common
+MATCH (other)-[:HAS_GENRE]->(og:GENRE)
+WITH m, other, intersection, i, s1, COLLECT(og.name) AS s2 // s2 all other genres
+WITH m, other, intersection, s1, s2
+WITH m, other, intersection, s1+filter(x IN s2 WHERE NOT x IN s1) AS union, s1, s2
+RETURN m.title, other.title, s1,s2,((1.0*intersection)/SIZE(union)) AS jaccard
+ORDER BY jaccard DESC LIMIT 100
+
+
+#####
+#####
+##### Collaborative Filtering Reccomendations
+#####
+#####
+
+# User Rec basata su utenti simili perchè hanno votato come me
+
+MATCH (u:USER{userId: 6 })-[my_rating:RATED]->(m:MOVIE)<-[other_rating:RATED]-(similar_user:USER)
+WHERE ABS(my_rating.rating - other_rating.rating ) <= 1
+RETURN similar_user
+
+MATCH (u:USER{userId:6})-[my_rating:RATED]->(m:MOVIE)<-[other_rating:RATED]-(similar_user:USER)
+WHERE ABS(my_rating.rating - other_rating.rating ) <= 1
+WITH similar_user
+MATCH (similar_user:USER)-[r:RATED]->(om:MOVIE)
+WHERE r.rating >= 3 
+RETURN similar_user, om
+ORDER BY r.rating DESC
+LIMIT 10
+
+#
+# Reccomendation Basata su Counting
+#
+MATCH(u1:USER{userId: 1 })-[:RATED]->(m1:MOVIE)<-[:RATED]-(u2:USER)-[:RATED]->(m2:MOVIE)
+WHERE m1.movieId <> m2.movieId
+WITH u1, u2, count(m1) as cnt, m2, collect(m1) as Shareditems
+WHERE cnt > 2
+RETURN DISTINCT cnt, m2.movieId as Recommendations
+ORDER BY cnt DESC
+
+
+#
+# Reccomendation Basata su Distanza Euclidea - PRECOMPUTATA
+#
+MATCH (u1:USER)-[x:RATED]->(b:MOVIE)<-[y:RATED]-(u2:USER)
+WITH
+count(b) AS CommonMovies
+, u1.userId AS user1
+, u2.userId AS user2
+, u1, u2
+, collect((toFloat(x.rating)-toFloat(y.rating))^2) AS ratings
+, collect(b.title) AS movies
+WITH CommonMovies, movies, u1, u2, ratings
+MERGE (u1)-[s:EUCSIM]->(u2)
+	SET s.EUCSIM = 1 / 1  + (SQRT(reduce(total=0.0, k in extract(i in ratings | i/CommonMovies) | total+k)))
+
+
+#
+# Reccomendation Basata su DISTANZA EUCLIDEA - Per User 1
+#
+MATCH (u1:USER{ userId:1 })-[r1:RATED]->(m:MOVIE)<-[r2:RATED]-(u2:USER)
+WITH
+count(m) AS CommonMovies , u1.userId AS user1, u2.userId AS user2
+, u1, u2
+, collect((toFloat(r1.rating)-toFloat(r2.rating))^2) AS ratings
+, collect(m.title) AS movies
+WITH u1, u2, CommonMovies, movies, ratings
+WHERE CommonMovies > 2
+RETURN u1.userId, u2.userId, CommonMovies, 1 / (1 + (SQRT(reduce(total=0.0, k in extract(i in ratings | i/CommonMovies) | total + k ))) ) as EUC_SIM 
+ORDER BY EUC_SIM DESC
+
+#
+# Reccomendation Basata su DISTANZA EUCLIDEA - Per User 1 - CON CALCOLO MOVIE SIMILI
+#
+MATCH (u1:USER{ userId:1 })-[r1:RATED]->(m:MOVIE)<-[r2:RATED]-(u2:USER)
+WITH
+count(m) AS CommonMovies
+, u1.userId AS user1
+, u2.userId AS user2
+, u1, u2
+, collect((toFloat(r1.rating)-toFloat(r2.rating))^2) AS ratings
+, collect(m.title) AS movieNames
+, collect(m.movieId) AS movieIds
+WITH u1, u2, CommonMovies, movieNames, movieIds, ratings
+WHERE CommonMovies > 2
+
+WITH u1, u2, CommonMovies, 1/(1+SQRT(reduce(total=0.0, k in extract(i in ratings | i ) | total+k))) as EUC_SIM 
+ORDER BY EUC_SIM DESC
+LIMIT 3
+MATCH (u2)-[or:RATED]->(om:MOVIE)
+WHERE NOT ( (u1)-[:RATED]->(om) )
+
+WITH om , EUC_SIM as similarity, or.rating as rating
+ORDER BY om.movieId, similarity DESC
+
+WITH om.movieId as Movie, collect(rating) as ratings
+
+WITH Movie, REDUCE(s = 0, i IN ratings |toInt(s) + toInt(i))*1.0 / size(ratings) AS reco
+ORDER BY reco DESC
+RETURN Movie AS MOVIE, reco AS Recommendation
+
+
+#
+# SIMILARITA' COSENO con Analisi -> 
+#
+MATCH (u1:USER{ userId:1 })-[x:RATED]->(m:MOVIE)<-[y:RATED]-(u2:USER)
+WITH 
+u1, u2
+, COUNT(m) as CommonMovies
+, COLLECT(m) as CommonMoviesItems
+, SUM(toFloat(x.rating) * toFloat(y.rating)) AS xyDotProduct
+, SQRT(REDUCE(xDot = 0.0, a IN COLLECT(toFloat(x.rating)) | xDot + toFloat(a)^2)) AS xProd
+, SQRT(REDUCE(yDot = 0.0, b IN COLLECT(toFloat(y.rating)) | yDot + toFloat(b)^2)) AS yProd
+WHERE CommonMovies > 2
+WITH u1, u2, CommonMovies, CommonMoviesItems, (xyDotProduct / (xProd * yProd)) as CosineSimilarity
+// RETURN u1, u2, CommonMovies, CosineSimilarity
+ORDER BY CosineSimilarity DESC
+LIMIT 5
+
+MATCH (u2)-[or:RATED]->(om:MOVIE)
+WHERE NOT ( (u1)-[:RATED]->(om) )
+
+WITH u2, om , CosineSimilarity, or.rating as rating
+ORDER BY om.movieId, CosineSimilarity DESC
+// RETURN u2.userId, om.movieId, CosineSimilarity, rating
+
+WITH om.movieId as Movie, collect(rating) as ratings
+// Here we compute average rating per recommended movie
+WITH Movie, REDUCE(s = 0, i IN ratings | toInt(s) + toInt(i))*1.0 / size(ratings) AS reco
+ORDER BY reco DESC
+RETURN Movie AS Movie, reco AS Recommendation
+LIMIT 20
+
+#
+# Similarità Pearson
+#
+MATCH (u1:USER{ userId:1 })-[x:RATED]->(m:MOVIE)<-[y:RATED]-(u2:USER)
+
+MATCH (u1:USER{ userId:1 })-[r:RATED]->(m:MOVIE)
+WITH u1, avg(toFloat(r.rating)) AS u1_mean
+
+MATCH (u1)-[r1:RATED]->(m:MOVIE)<-[r2:RATED]-(u2:USER)
+WITH u1, u1_mean, u2, COLLECT({r1: r1, r2: r2}) AS ratings
+
+MATCH (u2)-[r:RATED]->(m:MOVIE)
+WITH u1, u1_mean, u2, avg(toFloat(r.rating)) AS u2_mean, ratings
+
+UNWIND ratings AS r
+WITH sum( (toFloat(r.r1.rating)-u1_mean) * (toFloat(r.r2.rating)-u2_mean) ) AS nom,
+     sqrt( sum( (toFloat(r.r1.rating) - u1_mean)^2) * sum( (toFloat(r.r2.rating) - u2_mean) ^2)) AS denom,
+     u1, u2
+WHERE denom <> 0
+RETURN u1.userId, u2.userId, nom/denom AS pearson, nom, denom
+ORDER BY pearson DESC LIMIT 100;
+
+
+
+
+
