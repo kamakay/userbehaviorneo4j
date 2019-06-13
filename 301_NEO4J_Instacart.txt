@@ -1,0 +1,67 @@
+
+
+###
+### Alternative Recommendation on Instacart
+###
+
+# Identifico User 18 e ordine 1860960
+MATCH (u:User{user_id:18})-[or:ORDERED]->(o:Order{order_id: 1860960})-[c:CONTAINS]->(p:Product)
+RETURN u, o, p
+ORDER BY c.addToCartOrder
+
+# In formato tabellare
+MATCH (u:User{user_id:18})-[or:ORDERED]->(o:Order{order_id: 1860960})-[c:CONTAINS]->(p:Product)
+RETURN u.user_id, o.order_id, p.product_id, p.product_name, c.addToCartOrder
+ORDER BY c.addToCartOrder
+
+# Identifico tutte le transizioni di stato: Aggiunta prodotto N a prodotto N+1
+
+MATCH (u:User{user_id:18})-[or:ORDERED]->(o:Order{order_id: 1860960})-[c:CONTAINS]->(p:Product)
+WITH o, p
+ORDER BY c.addToCartOrder
+WITH o, collect(p) as orderedProducts
+UNWIND range(0, size(orderedProducts)-2) as i
+RETURN o.order_id, i, orderedProducts[i]
+
+# Costruisco le relazioni tra le aggiunte al carrello
+
+MATCH (u:User{user_id:18})-[or:ORDERED]->(o:Order{order_id: 1860960})-[c:CONTAINS]->(p:Product)
+WITH o, p
+ORDER BY c.addToCartOrder
+WITH o, collect(p) as orderedProducts
+UNWIND range(0, size(orderedProducts)-2) as i
+
+WITH orderedProducts[i] as p1, orderedProducts[i+1] as p2
+// RETURN p1, p2
+
+MERGE (p1)-[r:NEXT]->(p2)
+    ON CREATE SET r.count = 1
+    ON MATCH SET r.count = r.count + 1
+
+# Lean
+MATCH (p1)-[r:NEXT]->(p2) DELETE r
+
+#
+# Recupero poi i gusti dell'utente corrente
+#
+MATCH (u:User{user_id:18})-[or:ORDERED]->(o:Order)-[c:CONTAINS]->(p1:Product)
+, (p1)-[r:NEXT]->(p2)
+RETURN p1, r.count, p2, o, u
+
+# Suggerimento (solo utente corrente)
+
+MATCH (p1{product_name: "Lime Italian Sparkling Mineral Water"})-[r:NEXT]->(p2)
+RETURN p1, r.count, p2
+
+
+# Suggerimento per utenti con altri gusti
+
+MATCH (u:User:ANY_LABEL})-[or:ORDERED]->(o:Order)-[c:CONTAINS]->(p1:Product)
+, (p1{product_name: "Lime Italian Sparkling Mineral Water"})-[r:NEXT]->(p2)
+RETURN p1, r.count, p2, o, u
+
+
+
+
+
+
