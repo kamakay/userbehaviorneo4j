@@ -117,6 +117,7 @@ MATCH (u:USER{userId: 6 })-[my_rating:RATED]->(m:MOVIE)<-[other_rating:RATED]-(s
 WHERE ABS(my_rating.rating - other_rating.rating ) <= 1
 RETURN similar_user
 
+
 MATCH (u:USER{userId:6})-[my_rating:RATED]->(m:MOVIE)<-[other_rating:RATED]-(similar_user:USER)
 WHERE ABS(my_rating.rating - other_rating.rating ) <= 1
 WITH similar_user

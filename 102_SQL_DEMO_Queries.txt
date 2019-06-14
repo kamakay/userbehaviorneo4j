@@ -31,7 +31,7 @@ SELECT OD."OrderID", O."CustomerID", "ProductID", "UnitPrice", "Quantity", "Disc
 FROM public.order_details as OD INNER JOIN  public.orders as O ON OD."OrderID" = O."OrderID"
 WHERE OD."ProductID" = 60
 )
--- tutti i prodotti diveris da X venduti assieme ad X
+-- tutti i prodotti diversi da X venduti assieme ad X
 , qry2 AS (
 SELECT
 OD."ProductID", COUNT(*) AS N
